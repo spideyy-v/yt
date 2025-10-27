@@ -22,8 +22,6 @@ def clean_url(url):
     except Exception:
         pass # If parsing fails, just use the original URL
     
-    # If not a standard 'watch' link (e.g., youtu.be), return it as is.
-    # yt-dlp is good at handling those.
     return url
 
 @app.route("/formats", methods=["POST"])
@@ -34,33 +32,37 @@ def list_formats():
     
     cleaned_url = clean_url(url)
 
+    # We add --force-ipv4 as our new attempt
+    command = [
+        "yt-dlp", "-F", cleaned_url, 
+        "--user-agent", USER_AGENT, 
+        "--no-check-certificate",
+        "--force-ipv4"
+    ]
+
     try:
-        # We add --user-agent to pretend to be a browser
-        # and --no-check-certificate as a fallback.
-        # We also capture stderr to the pipe to get the full output, including errors.
         result = subprocess.run(
-            [
-                "yt-dlp", "-F", cleaned_url, 
-                "--user-agent", USER_AGENT, 
-                "--no-check-certificate"
-            ],
+            command,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, # Capture stderr separately
+            stderr=subprocess.PIPE,
             text=True,
-            encoding='utf-8' # Specify encoding
+            encoding='utf-8'
         )
         
-        # Check if yt-dlp wrote to stderr
-        if result.stderr:
-            # If "ERROR" is in stderr, it's a real error
-            if "ERROR:" in result.stderr.upper():
-                return jsonify({"error": result.stderr}), 500
-            # Otherwise, it might just be warnings
+        # Check stderr for any "ERROR" messages
+        stderr_output = result.stderr or ""
+        if "ERROR:" in stderr_output.upper():
+            return jsonify({"error": f"yt-dlp failed: {stderr_output}"}), 500
         
+        # If no real error, but stdout is empty, something is wrong
+        if not result.stdout:
+            error_message = f"No formats found. yt-dlp output: {stderr_output}" if stderr_output else "No formats found and no error reported."
+            return jsonify({"error": error_message}), 500
+
         return jsonify({"formats": result.stdout})
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Server exception: {str(e)}"}), 500
 
 
 @app.route("/download", methods=["POST"])
@@ -74,32 +76,32 @@ def download():
 
     cleaned_url = clean_url(url)
 
+    # Add the same --force-ipv4 argument here
+    command = [
+        "yt-dlp", "-f", code, cleaned_url, 
+        "-o", "%(title)s.%(ext)s", 
+        "--user-agent", USER_AGENT, 
+        "--no-check-certificate",
+        "--force-ipv4"
+    ]
+
     try:
-        # Add the same arguments here
         result = subprocess.run(
-            [
-                "yt-dlp", "-f", code, cleaned_url, 
-                "-o", "%(title)s.%(ext)s", 
-                "--user-agent", USER_AGENT, 
-                "--no-check-certificate"
-            ],
+            command,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, # Capture stderr separately
+            stderr=subprocess.PIPE,
             text=True,
-            encoding='utf-8' # Specify encoding
+            encoding='utf-8'
         )
         
-        # Check if yt-dlp wrote to stderr
-        if result.stderr:
-            if "ERROR:" in result.stderr.upper():
-                return jsonify({"error": result.stderr}), 500
+        stderr_output = result.stderr or ""
+        if "ERROR:" in stderr_output.upper():
+            return jsonify({"error": f"yt-dlp failed: {stderr_output}"}), 500
 
         return jsonify({"status": "✅ Download completed!"})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Server exception: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
-    # The gunicorn command in the Dockerfile will be used by Render anyway.
     app.run(debug=True)
-
