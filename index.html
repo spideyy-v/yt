@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Downloader</title>
+    <!-- 1. Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 2. Use a nice, modern font */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for the spinner */
+        .spinner {
+            border-top-color: #3498db;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">
+
+    <!-- 3. Main content card -->
+    <div class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-lg">
+        
+        <h1 class="text-2xl sm:text-3xl font-bold text-center mb-6">
+            Video Downloader
+        </h1>
+        
+        <!-- 4. Form for URL input -->
+        <form id="urlForm" class="space-y-4">
+            <div>
+                <label for="urlInput" class="block text-sm font-medium text-gray-300 mb-2">YouTube URL</label>
+                <input 
+                    type="text" 
+                    id="urlInput" 
+                    placeholder="https://www.youtube.com/watch?v=..." 
+                    class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+            </div>
+            
+            <button 
+                type="submit" 
+                id="formatsButton"
+                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition duration-200"
+            >
+                <span class="spinner w-5 h-5 border-2 border-t-blue-600 border-r-blue-600 border-b-blue-600 border-l-white rounded-full mr-3 hidden"></span>
+                <span class="button-text">Get Formats</span>
+            </button>
+        </form>
+
+        <!-- 5. Results section (hidden by default) -->
+        <div id="resultsSection" class="mt-6 space-y-4 hidden">
+            <div>
+                <label for="formatsSelect" class="block text-sm font-medium text-gray-300 mb-2">Select a format</label>
+                <select 
+                    id="formatsSelect"
+                    class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                    <!-- Options will be added by JS -->
+                </select>
+            </div>
+            
+            <button 
+                id="downloadButton"
+                class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition duration-200"
+            >
+                <span class="spinner w-5 h-5 border-2 border-t-green-600 border-r-green-600 border-b-green-600 border-l-white rounded-full mr-3 hidden"></span>
+                <span class="button-text">Download</span>
+            </button>
+        </div>
+        
+        <!-- 6. Message area for status and errors -->
+        <div id="messageArea" class="mt-4 text-center text-sm"></div>
+
+    </div>
+
+    <!-- 7. JavaScript for API calls -->
+    <script>
+        // --- CONFIGURATION ---
+        // After you deploy, change this to your public Render URL
+        // Example: "https://my-ytdlp-server.onrender.com"
+        // When running locally, use: "http://127.0.0.1:5000"
+        const API_BASE_URL = "https://youtube-downloader-bwtw.onrender.com/";
+        // --- END CONFIGURATION ---
+
+        // Get all the elements we need
+        const urlForm = document.getElementById('urlForm');
+        const urlInput = document.getElementById('urlInput');
+        const formatsButton = document.getElementById('formatsButton');
+        
+        const resultsSection = document.getElementById('resultsSection');
+        const formatsSelect = document.getElementById('formatsSelect');
+        const downloadButton = document.getElementById('downloadButton');
+        
+        const messageArea = document.getElementById('messageArea');
+
+        // Helper function to show/hide loading spinners
+        function toggleLoading(button, isLoading) {
+            const spinner = button.querySelector('.spinner');
+            const text = button.querySelector('.button-text');
+            if (isLoading) {
+                spinner.classList.remove('hidden');
+                text.classList.add('hidden');
+                button.disabled = true;
+            } else {
+                spinner.classList.add('hidden');
+                text.classList.remove('hidden');
+                button.disabled = false;
+            }
+        }
+
+        // Helper function to show messages
+        function showMessage(message, isError = false) {
+            messageArea.textContent = message;
+            messageArea.className = isError 
+                ? 'mt-4 text-center text-sm text-red-400' 
+                : 'mt-4 text-center text-sm text-green-400';
+        }
+
+        /**
+         * Parses the text output from 'yt-dlp -F'
+         * @param {string} text - The raw text output
+         * @returns {Array} An array of {code, description} objects
+         */
+        function parseFormats(text) {
+            const lines = text.split('\n');
+            const formats = [];
+            let startParsing = false;
+
+            for (const line of lines) {
+                if (line.startsWith('ID  EXT')) {
+                    startParsing = true;
+                    continue;
+                }
+                
+                if (startParsing) {
+                    const trimmedLine = line.trim();
+                    // Check if the line starts with a number (the format code)
+                    if (/^\d/.test(trimmedLine)) {
+                        // Split by one or more whitespace characters
+                        const parts = trimmedLine.split(/\s+/);
+                        const code = parts[0];
+                        // Re-join the rest for the description
+                        const description = parts.slice(1).join(' '); 
+                        
+                        formats.push({ code, description });
+                    }
+                }
+            }
+            return formats;
+        }
+
+        // Event: "Get Formats" button is clicked
+        urlForm.addEventListener('submit', async (e) => {
+            e.preventDefault(); // Stop the form from submitting normally
+            const url = urlInput.value;
+            
+            if (!url) {
+                showMessage('Please enter a URL', true);
+                return;
+            }
+
+            toggleLoading(formatsButton, true);
+            showMessage('');
+            resultsSection.classList.add('hidden');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/formats`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to get formats');
+                }
+                
+                // Clear old formats
+                formatsSelect.innerHTML = '';
+                
+                // Parse the raw text and populate the dropdown
+                const formats = parseFormats(data.formats);
+                
+                if (formats.length === 0) {
+                    showMessage('No downloadable formats found.', true);
+                    return;
+                }
+
+                formats.forEach(format => {
+                    const option = document.createElement('option');
+                    option.value = format.code;
+                    option.textContent = `${format.code}: ${format.description}`;
+                    formatsSelect.appendChild(option);
+                });
+
+                resultsSection.classList.remove('hidden');
+
+            } catch (err) {
+                showMessage(err.message, true);
+            } finally {
+                toggleLoading(formatsButton, false);
+            }
+        });
+
+        // Event: "Download" button is clicked
+        downloadButton.addEventListener('click', async () => {
+            const url = urlInput.value;
+            const code = formatsSelect.value;
+
+            if (!url || !code) {
+                showMessage('Missing URL or format code', true);
+                return;
+            }
+            
+            toggleLoading(downloadButton, true);
+            showMessage('Starting download... this may take a moment.');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/download`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url, code: code })
+                });
+                
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Download failed');
+                }
+                
+                showMessage(data.status || 'Download complete!', false);
+
+            } catch (err) {
+                showMessage(err.message, true);
+            } finally {
+                toggleLoading(downloadButton, false);
+            }
+        });
+    </script>
+</body>
+</html>
+
